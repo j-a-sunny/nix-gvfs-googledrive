@@ -34,7 +34,9 @@ ever offers to mount it.
 
 ## Usage
 
-### Option A — NixOS module (recommended)
+### Option A — Flake module (recommended)
+
+In your flake.nix
 
 ```nix
 {
@@ -76,11 +78,54 @@ with others manually).
    but Nautilus still doesn't show the Drive location, check
    `journalctl --user -u gvfs-daemon` and `journalctl --user -b | grep -i goa`.
 
+## Reaching Online Accounts outside full GNOME Shell (Niri, Sway, Hyprland, ...)
+
+If you're not running a full GNOME session, `gnome-control-center` often
+hides or misbehaves on its Online Accounts panel because it checks
+`XDG_CURRENT_DESKTOP`/`XDG_SESSION_DESKTOP` to decide what to show. The fix
+is to launch just that one panel with those variables forced to `GNOME`,
+rather than the whole Settings app.
+
+Quick one-off, from a terminal or your launcher's "run command" box:
+
+```console
+$ env XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome \
+    gnome-control-center online-accounts
+```
+
+To get a normal, clickable entry in your app launcher instead of typing that every time, add a small desktop item package. In
+your `packages.nix` (or wherever you build `environment.systemPackages`):
+
+```nix
+{ pkgs, ... }:
+let
+  onlineAccountsLauncher = pkgs.makeDesktopItem {
+    name = "gnome-online-accounts-launcher";
+    desktopName = "Online Accounts";
+    comment = "Add and manage online accounts";
+    exec = "env XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome ${pkgs.gnome-control-center}/bin/gnome-control-center online-accounts";
+    icon = "preferences-system";
+    categories = [ "Settings" "DesktopSettings" ];
+  };
+in
+{
+  environment.systemPackages = [
+    onlineAccountsLauncher
+    # ... your other packages
+  ];
+}
+```
+
+After rebuilding, "Online Accounts" shows up as its own launcher entry and
+opens straight to the right panel, with the Google Files toggle from this
+flake's `gnome-online-accounts` override visible, without needing a full
+GNOME Shell session installed at all.
+
 ## Pitfalls already hit (so you don't have to)
 
 1. `.override { gnomeSupport = true; googleSupport = true; }` →
    `error: ... called with unexpected argument 'googleSupport'`. There is
-   no `googleSupport` argument — only `gnomeSupport`. The actual toggle is
+   no `googleSupport` argument, only `gnomeSupport`. The actual toggle is
    the `-Dgoogle=true` mesonFlag.
 2. Missing `json-glib` in `buildInputs` → `gvfsd-google` fails to link,
    since `daemon/meson.build` uses
@@ -114,9 +159,9 @@ needed for manual/offline updates.)
 
 ## References
 
-- Fork source: <https://gitlab.gnome.org/fluhus/gvfs>
-- Background: <https://discourse.gnome.org/t/google-drive-in-gnome-50/34417>,
-  <https://discussion.fedoraproject.org/t/call-for-testers-restoring-google-drive-integration-in-gnome/189348>
+- Fork source: [https://gitlab.gnome.org/fluhus/gvfs](https://gitlab.gnome.org/fluhus/gvfs)
+- Background: [https://discourse.gnome.org/t/google-drive-in-gnome-50/34417](https://discourse.gnome.org/t/google-drive-in-gnome-50/34417),
+  [https://discussion.fedoraproject.org/t/call-for-testers-restoring-google-drive-integration-in-gnome/189348](https://discussion.fedoraproject.org/t/call-for-testers-restoring-google-drive-integration-in-gnome/189348)
 - GOA feature-removal commit: [MR !384](https://gitlab.gnome.org/GNOME/gnome-online-accounts/-/merge_requests/384)
 - Arch reference packages (confirmed no source patches involved, just build
   flags): AUR `gvfs-googledrive`, AUR `gnome-online-accounts-googledrive`
