@@ -15,26 +15,26 @@ and auto-committed when upstream moves, after a build sanity check passes.
 
 There are two separate pieces, and you need both:
 
-1. **`gvfs`** — provides the `gvfsd-google` mount backend (FUSE-mounted
+1. **`gvfs`**  provides the `gvfsd-google` mount backend (FUSE-mounted
    Drive folder, `google-drive://` locations). Built from
    `gitlab.gnome.org/fluhus/gvfs` with `-Dgoogle=true` (requires
    `gnomeSupport = true` / `-Dgoa=true`).
-2. **`gnome-online-accounts`** — decides whether the **"Files" toggle even
+2. **`gnome-online-accounts`**  decides whether the **"Files" toggle even
    appears** in Settings → Online Accounts for a Google account. This is a
    separate deprecation from gvfs's own
    ([upstream MR !384](https://gitlab.gnome.org/GNOME/gnome-online-accounts/-/merge_requests/384)
-   turned it off by default). No fork source needed here — it's plain
+   turned it off by default). No fork source needed here, it's plain
    upstream `gnome-online-accounts` with `-Dgoogle_files=true` added, an
    option that already exists upstream, just off by default.
 
-Nautilus doesn't talk to Google Drive directly — it discovers Drive as a
+Nautilus doesn't talk to Google Drive directly, it discovers Drive as a
 location purely by asking GOA (via D-Bus) which accounts have the Files
 feature enabled. If you only patch `gvfs`, the backend works but nothing
 ever offers to mount it.
 
 ## Usage
 
-### Option A — Flake module (recommended)
+### Option A: Flake module (recommended)
 
 In your flake.nix
 
@@ -55,7 +55,7 @@ In your flake.nix
 That applies the overlay and sets `services.gvfs.enable` and
 `services.gnome.gnome-online-accounts.enable` for you.
 
-### Option B — overlay only
+### Option B: overlay only
 
 ```nix
 nixpkgs.overlays = [ inputs.gvfs-googledrive.overlays.default ];
@@ -70,7 +70,7 @@ with others manually).
 ## After rebuilding
 
 1. **Fully log out and back in** (or reboot). `goa-daemon` and
-   `gnome-control-center` hold the old libraries in memory — closing
+   `gnome-control-center` hold the old libraries in memory, closing
    Settings isn't enough.
 2. In Settings → Online Accounts, **remove and re-add** the Google account
    so it re-registers with the patched daemon.
@@ -142,7 +142,7 @@ GNOME Shell session installed at all.
 4. Installing `gvfs`/`gnome-online-accounts` via
    `environment.systemPackages = with pkgs; [ ... ]` bypasses the
    `gnome.*` scope entirely, since that's a separate top-level attribute
-   path `gnome.overrideScope` never touches — hence the `gvfs = final.gnome.gvfs;`
+   path `gnome.overrideScope` never touches, hence the `gvfs = final.gnome.gvfs;`
    alias line at the bottom of the overlay.
 
 ## Updating the pin manually
@@ -154,7 +154,7 @@ $ nix store prefetch-file --hash-type sha256 --json \
 ```
 
 Paste the rev into `gvfsRev` and the `.hash` field into `gvfsHash` in
-`flake.nix`. (The GitHub Action does this automatically — this is only
+`flake.nix`. (The GitHub Action does this automatically, this is only
 needed for manual/offline updates.)
 
 ## References
