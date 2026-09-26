@@ -12,43 +12,24 @@
       gvfsHash = "sha256-pfIO4lAPK2lzx2Q35wMH+5rBSQGklYON++sovfu629g=";
 
       overlay = final: prev: {
-        gnome = prev.gnome.overrideScope (
-          gfinal: gprev: {
-            gvfs =
-              (gprev.gvfs.override {
-                gnomeSupport = true; # required: gvfs's google backend asserts goa is enabled
-              }).overrideAttrs
-                (oldAttrs: {
-                  src = final.fetchurl {
-                    url = "https://gitlab.gnome.org/fluhus/gvfs/-/archive/${gvfsRev}/gvfs-${gvfsRev}.tar.gz";
-                    hash = gvfsHash;
-                  };
-                  # daemon/meson.build's google block links gvfsd-google against
-                  # json-glib directly; gnome-online-accounts' own json-glib
-                  # buildInput isn't propagated, so it must be declared here too.
-                  buildInputs = oldAttrs.buildInputs ++ [ final.json-glib ];
-                  mesonFlags = oldAttrs.mesonFlags ++ [ "-Dgoogle=true" ];
-                });
-          }
-        );
+        # Overriding directly at the top level since gvfs is no longer isolated to the gnome scope
+        gvfs = (prev.gvfs.override {
+          gnomeSupport = true; # required: gvfs's google backend asserts goa is enabled
+        }).overrideAttrs (oldAttrs: {
+          src = final.fetchurl {
+            url = "https://gitlab.gnome.org/fluhus/gvfs/-/archive/${gvfsRev}/gvfs-${gvfsRev}.tar.gz";
+            hash = gvfsHash;
+          };
+          # daemon/meson.build's google block links gvfsd-google against
+          # json-glib directly; gnome-online-accounts' own json-glib
+          # buildInput isn't propagated, so it must be declared here too.
+          buildInputs = oldAttrs.buildInputs ++ [ final.json-glib ];
+          mesonFlags = oldAttrs.mesonFlags ++ [ "-Dgoogle=true" ];
+        });
 
-        # gnome-online-accounts is NOT part of the gnome.* scope in current
-        # nixpkgs (pkgs/desktops/gnome/default.nix only keeps gvfs there now,
-        # everything else moved to top-level) - override it directly here, not
-        # inside gnome.overrideScope, or eval fails with:
-        #   error: attribute 'gnome-online-accounts' missing
-        # Same upstream source nixpkgs already fetches, just with the
-        # (upstream, off-by-default) flag flipped on - no custom src needed.
         gnome-online-accounts = prev.gnome-online-accounts.overrideAttrs (oldAttrs: {
           mesonFlags = oldAttrs.mesonFlags ++ [ "-Dgoogle_files=true" ];
         });
-
-        # services.gvfs.package defaults to pkgs.gnome.gvfs, which the override
-        # above already reaches. But gnome.overrideScope only rewires
-        # references *inside* the gnome scope - if gvfs is also installed
-        # directly from the top-level pkgs set anywhere (environment.systemPackages,
-        # home-manager, etc.), that separate attribute needs aliasing too.
-        gvfs = final.gnome.gvfs;
       };
 
       nixosModule = { config, lib, pkgs, ... }: {
@@ -75,7 +56,8 @@
           };
         in
         {
-          gvfs-googledrive = pkgs.gnome.gvfs;
+          # Updated to target the top-level pkgs.gvfs
+          gvfs-googledrive = pkgs.gvfs;
           gnome-online-accounts-googledrive = pkgs.gnome-online-accounts;
         };
     in
