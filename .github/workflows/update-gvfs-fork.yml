@@ -1,0 +1,121 @@
+name: Update fluhus/gvfs pin
+
+on:
+  schedule:
+    # Daily, off the top of the hour to avoid the cron thundering herd.
+    - cron: "17 4 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-gvfs-fork
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Read currently pinned rev
+        id: current
+        run: |
+          rev=$(grep -oP 'gvfsRev = "\K[0-9a-f]+' flake.nix)
+          if [ -z "$rev" ]; then
+            echo "::error::Could not parse gvfsRev out of flake.nix"
+            exit 1
+          fi
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Query latest upstream commit
+        id: latest
+        run: |
+          project="fluhus%2Fgvfs"
+          default_branch=$(curl -sf "https://gitlab.gnome.org/api/v4/projects/${project}" | jq -r '.default_branch')
+          if [ -z "$default_branch" ] || [ "$default_branch" = "null" ]; then
+            echo "::error::Could not resolve default branch for fluhus/gvfs"
+            exit 1
+          fi
+          latest=$(curl -sf "https://gitlab.gnome.org/api/v4/projects/${project}/repository/commits/${default_branch}" | jq -r '.id')
+          if [ -z "$latest" ] || [ "$latest" = "null" ]; then
+            echo "::error::Could not resolve latest commit on ${default_branch}"
+            exit 1
+          fi
+          echo "rev=$latest" >> "$GITHUB_OUTPUT"
+          echo "branch=$default_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether an update is needed
+        id: check
+        run: |
+          if [ "${{ steps.current.outputs.rev }}" = "${{ steps.latest.outputs.rev }}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prefetch new source hash
+        if: steps.check.outputs.changed == 'true'
+        id: prefetch
+        run: |
+          rev="${{ steps.latest.outputs.rev }}"
+          url="https://gitlab.gnome.org/fluhus/gvfs/-/archive/${rev}/gvfs-${rev}.tar.gz"
+          hash=$(nix store prefetch-file --hash-type sha256 --json "$url" | jq -r '.hash')
+          if [ -z "$hash" ] || [ "$hash" = "null" ]; then
+            echo "::error::Failed to prefetch hash for $url"
+            exit 1
+          fi
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Update flake.nix pin
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          sed -i "s|gvfsRev = \".*\";|gvfsRev = \"${{ steps.latest.outputs.rev }}\";|" flake.nix
+          sed -i "s|gvfsHash = \".*\";|gvfsHash = \"${{ steps.prefetch.outputs.hash }}\";|" flake.nix
+
+      - name: Refresh flake.lock
+        if: steps.check.outputs.changed == 'true'
+        run: nix flake update
+
+      - name: Build sanity check (x86_64-linux)
+        if: steps.check.outputs.changed == 'true'
+        run: nix build .#packages.x86_64-linux.gvfs-googledrive .#packages.x86_64-linux.gnome-online-accounts-googledrive --print-build-logs
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: |
+            chore: bump fluhus/gvfs to ${{ steps.latest.outputs.rev }}
+
+            Auto-updated by .github/workflows/update-gvfs-fork.yml
+            Source: ${{ steps.prefetch.outputs.url }}
+          file_pattern: "flake.nix flake.lock"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+
+      - name: Open an issue if the build broke
+        if: failure() && steps.check.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Automated update to fluhus/gvfs@${{ steps.latest.outputs.rev }} failed to build`,
+              body: [
+                `Upstream commit ${{ steps.latest.outputs.rev }} was detected but the sanity build failed,`,
+                `so no commit was made. See the failed run for details:`,
+                `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              ].join("\n"),
+              labels: ["automated", "build-failure"]
+            });
